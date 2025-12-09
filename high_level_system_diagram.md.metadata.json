@@ -1,5 +1,6 @@
 {
   "artifactType": "ARTIFACT_TYPE_OTHER",
-  "summary": "High-level system diagram showing component interactions.",
-  "updatedAt": "2025-12-09T02:51:33.405275700Z"
+  "summary": "High-level system diagram with expanded LLM context showing extraction, rewriting, and summarization steps.",
+  "updatedAt": "2025-12-09T02:56:59.288756100Z",
+  "version": "1"
 }

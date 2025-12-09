@@ -1,62 +1,74 @@
 # High-Level System Diagram
 
-This diagram visualizes the high-level interaction between components in the Synnex Bot system, illustrating the flow from user input to response generation.
+This diagram clearly illustrates the context and specific roles of LLMs within the Synnex Bot message processing flow.
 
 ```mermaid
 graph LR
     %% Styles
     classDef user fill:#fff,stroke:#333,stroke-width:2px;
-    classDef platform fill:#00b900,stroke:#333,stroke-width:2px,color:white; %% LINE Green
-    classDef service fill:#fff,stroke:#333,stroke-width:2px,rx:10,ry:10;
+    classDef platform fill:#00b900,stroke:#333,stroke-width:2px,color:white;
+    classDef llm fill:#e1d5e7,stroke:#9673a6,stroke-width:2px,rx:5,ry:5;
+    classDef db fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px,shape:cylinder;
     classDef logic fill:#fff,stroke:#333,stroke-width:2px,rx:5,ry:5;
-    classDef llm fill:#e1d5e7,stroke:#9673a6,stroke-width:2px,rx:5,ry:5; %% Purple for AI
-    classDef db fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px,shape:cylinder; %% Blue for Data
-
+    
     %% Nodes
     User(("User")):::user
     LINE("LINE Platform"):::platform
     
-    subgraph SynnexBot["Synnex Bot System"]
-        API["API Gateway<br>(FastAPI)"]:::service
+    subgraph Processing["Message Processing Pipeline"]
+        direction LR
         
-        subgraph Processing["Message Processing Pipeline"]
-            Extract["LLM<br>(Feature Extraction)"]:::llm
-            Router["Response Selection<br>(Intent Router)"]:::logic
-            
-            subgraph Retrieval["Data Retrieval"]
-                Search["OpenSearch<br>(Products & FAQ)"]:::db
-                CustomerDB["Customer DB<br>(Profiles)"]:::db
-            end
-            
-            Generate["LLM<br>(Response Generation)"]:::llm
+        Input("Incoming Message"):::logic
+        
+        subgraph Understanding["1. Understanding"]
+            LLM_Extract["LLM: Metadata Extraction<br>(Brand, Category, Price)"]:::llm
+            LLM_Rewrite["LLM: Contextual Rewriting<br>(History Aware Query)"]:::llm
+        end
+        
+        subgraph Retrieval["2. Retrieval & Ranking"]
+            OpenSearch[("OpenSearch<br>(Vector/Keyword)")]:::db
+            Rules["Price & Stock Filters"]:::logic
+        end
+        
+        subgraph Synthesis["3. Synthesis"]
+            LLM_Sum["LLM: Summarization & Recommendation<br>(Natural Language Output)"]:::llm
+            CardGen["Flex Message Generator"]:::logic
         end
     end
 
     %% Flow
     User -->|Message| LINE
-    LINE <-->|Webhook| API
+    LINE -->|Webhook| Input
     
-    API -->|"1. Raw Message"| Extract
-    Extract -->|"2. Structured Data"| Router
+    Input -->|"Raw Text"| LLM_Extract
+    LLM_Extract -->|"Structured Data"| LLM_Rewrite
     
-    Router -->|"3a. Search Query"| Search
-    Router -->|"3b. Profile Query"| CustomerDB
+    LLM_Rewrite -->|"Optimized Query"| OpenSearch
     
-    Search -->|"4a. Product/FAQ Results"| Router
-    CustomerDB -->|"4b. Customer Info"| Router
+    OpenSearch -->|"Raw Hits"| Rules
+    Rules -->|"Filtered Products"| LLM_Sum
     
-    Router -->|"5. Context & Results"| Generate
-    Generate -->|"6. Natural Response"| API
+    LLM_Sum -->|"Recommendation Text"| CardGen
+    Rules -->|"Product Data"| CardGen
+    
+    CardGen -->|"Final Response (Text + Cards)"| LINE
 ```
 
-## Component Flow Description
+## LLM Process Context
 
-1.  **User Interaction**: The user sends a message via the LINE application.
-2.  **Entry Point**: The **LINE Platform** forwards the message to the **API Gateway** (FastAPI) via a webhook.
-3.  **Feature Extraction**: The system first uses an **LLM** to extract structured data (product features, category, brand) from the raw user message.
-4.  **Routing & Selection**: The **Response Selection** component determines the user's intent (e.g., Product Search, FAQ, Tracking) based on the extracted features and regex rules.
-5.  **Data Retrieval**:
-    *   **OpenSearch** is queried for products or FAQs.
-    *   **Customer DB** is queried for specific user data (orders, credit limit).
-6.  **Response Generation**: The retrieved data is sent to an **LLM** to generate a natural, helpful response for the user.
-7.  **Reply**: The final formatted message is sent back to the user through the LINE Platform.
+The system utilizes Large Language Models (LLMs) at three critical stages:
+
+1.  **Metadata Extraction**: 
+    *   **Input**: User's raw message (e.g., "I want a Samsung phone under 20k").
+    *   **Action**: Extracts structured entities.
+    *   **Output**: JSON `{brand: "Samsung", category: "Phone", price_max: 20000}`.
+
+2.  **Contextual Rewriting**:
+    *   **Input**: Current query + Chat History.
+    *   **Action**: Resolves references (e.g., "how about iPhone?" -> "Show me iPhone price and specs").
+    *   **Output**: A standalone, search-optimized query string.
+
+3.  **Summarization & Recommendation**:
+    *   **Input**: List of products retrieved from OpenSearch.
+    *   **Action**: Generates a helpful, human-like summary explaining why these products match.
+    *   **Output**: "Here are the top Samsung phones under 20,000 THB. The Galaxy A55 is a great choice because..."
