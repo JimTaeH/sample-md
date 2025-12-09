@@ -1,0 +1,153 @@
+# Synnex Bot System Architecture
+
+## Overview
+The Synnex Bot is a FastAPI-based chatbot application integrated with the LINE Messaging API. It utilizes a RAG (Retrieval-Augmented Generation) architecture, leveraging OpenSearch for product/FAQ retrieval and LLMs (OpenAI/Anthropic) for natural language understanding and response generation.
+
+## Technology Stack
+- **Framework**: FastAPI (Python)
+- **Interface**: LINE Messaging API (Webhook based)
+- **Database/Search**:
+  - **OpenSearch**: Vector and keyword search for products and FAQs.
+  - **Azure Cosmos DB**: Data persistence (inferred).
+  - **Redis**: Caching (inferred from requirements).
+- **AI/ML**:
+  - **LLM**: Azure OpenAI / Anthropic Claude (via LangChain integration).
+  - **NLP**: PyThaiNLP (Thai language processing), NLTK.
+- **Infrastructure**: Azure (Blob Storage, Identity, Monitor).
+
+## System Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph Client ["Client Layer"]
+        User(("User"))
+        LineApp[("LINE Application")]
+        User -->|Interacts| LineApp
+    end
+
+    subgraph External ["External Services"]
+        LineAPI["LINE Messaging API"]
+        OpenAI["Azure OpenAI / Anthropic"]
+    end
+
+    subgraph App ["Synnex Bot Application (FastAPI)"]
+        
+        subgraph Entry ["Entry Points"]
+            LineRouter["LineBotRouter<br>(/webhook)"]
+            NLPRouter["NLPBotRouter<br>(/nlp_bot_logic)"]
+            Health["Health Check"]
+        end
+
+        subgraph Core ["Core Orchestration"]
+            EventHandler["EventHandler"]
+            ResponseSelection["ResponseSelection<br>(Intent Classifier)"]
+            MessageHandler["MessageHandler"]
+        end
+
+        subgraph Logic ["Business Logic Services"]
+            CustService["CustomerHandler"]
+            ProdService["ProductHandler"]
+            IncentiveService["IncentiveHandler"]
+        end
+
+        subgraph Infra ["Infrastructure Adapters"]
+            LLMHandler["LLMHandler"]
+            OSService["OpenSearchService"]
+            LogHandler["ContextLogHandler"]
+        end
+    end
+
+    subgraph Data ["Data Layer"]
+        OpenSearch[("OpenSearch<br>(Products/FAQ)")]
+        Cosmos[("Azure Cosmos DB")]
+        Redis[("Redis Cache")]
+    end
+
+    %% Flow Connections
+    LineApp -->|Webhook| LineAPI
+    LineAPI -->|POST /webhook| LineRouter
+    
+    LineRouter -->|Delegates| EventHandler
+    
+    EventHandler -->|Log Context| LogHandler
+    EventHandler -->|Identify Intent| ResponseSelection
+    
+    ResponseSelection -->|Check Regex/Rules| ResponseSelection
+    ResponseSelection -->|Check FAQ| OSService
+    ResponseSelection -->|Extract Structure| LLMHandler
+    
+    %% Intent Flows
+    ResponseSelection -.->|Product Search| ProdService
+    ResponseSelection -.->|User Info| CustService
+    ResponseSelection -.->|FAQ Match| OSService
+    ResponseSelection -.->|General Chat| LLMHandler
+    
+    %% Service Dependencies
+    ProdService -->|Query| OSService
+    ProdService -->|Format| MessageHandler
+    
+    MessageHandler -->|Generate Response| LLMHandler
+    
+    %% Data Access
+    OSService <--> OpenSearch
+    CustService <--> Cosmos
+    LogHandler --> OpenSearch
+    
+    %% External Calls
+    LLMHandler <-->|API Call| OpenAI
+    EventHandler -->|Reply/Push| LineAPI
+```
+
+## detailed Data Flow (Message Processing)
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant L as LINE Platform
+    participant A as API (LineBotRouter)
+    participant E as EventHandler
+    participant R as ResponseSelection
+    participant LLM as LLMHandler
+    participant S as OpenSearch
+    participant P as ProductHandler
+
+    U->>L: Send Message
+    L->>A: Webhook (JSON)
+    A->>E: handle_event()
+    E->>LLM: extract_product_feature_structure(msg)
+    LLM-->>E: Structure (Product/Category/Brand)
+    
+    E->>R: handle_message(msg, structure)
+    
+    par Intent Detection
+        R->>R: Check Greeting/Rules
+        R->>S: Search FAQ (Vector/Keyword)
+        S-->>R: FAQ Score / Answer
+    end
+    
+    alt is FAQ
+        R-->>E: FAQ Response
+    else is Product Search
+        R->>P: get_recommendation()
+        P->>S: Search Products
+        S-->>P: Product List
+        P->>LLM: Recommend/Format Output
+        LLM-->>P: Natural Response
+        P-->>E: Message List
+    end
+    
+    E->>L: Reply Message (Text/Flex)
+    L->>U: Display Response
+```
+
+## Key Components Description
+
+| Component | Responsibility |
+|-----------|----------------|
+| **LineBotRouter** | Receives webhooks from LINE, validates signatures, and parses events. |
+| **EventHandler** | Main controller. Coordinates between User context, Intent classification, and execution. |
+| **ResponseSelection** | The "Brain" of the router. Decides if a message is a greeting, an FAQ (via OpenSearch score), a product query, or a specific menu action. |
+| **LLMHandler** | Wrapper around OpenAI/Claude. Handles prompt engineering, token management, and specific tasks like "Extract Product Features" or "Rewrite Query". |
+| **OpenSearchService** | Handles all interactions with OpenSearch cluster for both Products and FAQ knowledge base. |
+| **ProductHandler** | Business logic for product catalog, including search logic, filtering, and formatting product cards. |
+```
